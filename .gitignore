@@ -8,6 +8,13 @@
 *.lst
 *.sym
 
+# batari Basic (bB) build output — intermediate files land in cwd if a spike
+# is recompiled outside its own directory
+/bB.asm
+/includes.bB
+/2600basic_variable_redefs.h
+*.bas.asm
+
 # Stella save states / debug dumps
 *.st1
 *.st2
