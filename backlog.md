@@ -6,6 +6,8 @@ Légende : 🔴 bloqué · 🟡 prêt à démarrer · 🟢 fait · ⚪ pas comme
 ## Lane 0 — Spikes bloquants (rien après ne démarre sans porte validée)
 
 > **🟢 Pivot architectural du 2026-08-31 — abandon ARM/DPC+/CDFJ+, retour 100% 6507/TIA natif.** Décision confirmée par l'utilisateur, détail complet dans [`PIVOT_INSTRUCTIONS.md`](PIVOT_INSTRUCTIONS.md). Conséquence : les Spikes 0.1/0.1b/0.2/0.2b ci-dessous sont **résolus par pivot** (archivés dans `spikes/`, bandeau SUPERSEDED sur chaque README) et ne bloquent plus Lane 2 — leurs mesures restent la justification écrite de la décision, mais leur sortie technique (oui/non bus-stuffing, coût ACE) est devenue sans objet puisque l'ARM n'est plus utilisé. Seul spike réellement ouvert désormais : **Spike FRC** (bascule table de teintes en vblank, section 5.3/9.2 pt.4 du cahier des charges — mécanisme 100% 6507, déjà listé en Lane 2/Proto 2, testable dès maintenant).
+>
+> **Mise à jour 2026-08-31 — `cahier_des_charges.md` réécrit en Draft v8** (demande explicite de l'utilisateur, malgré une révision en cours en parallèle côté utilisateur — voir `PIVOT_INSTRUCTIONS.md` §4 pour le risque de divergence à surveiller). Le bus stuffing supprimé n'était pas qu'un détail ARM : c'est le mécanisme qui rendait une écriture TIA variable possible en 3 cycles au lieu d'une paire `LDA`/`STA` — sa disparition réduit réellement l'ambition de densité graphique du projet, pas seulement sa mise en œuvre technique (voir §1, §2, §9 du cahier des charges révisé pour l'aveu assumé de ce recul).
 
 - 🟢 (résolu par pivot) Spike 0.1 — Bus stuffing + sprite natif mobile, même scanline
   - Sortie attendue : oui/non + marge de cycles mesurée

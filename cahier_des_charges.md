@@ -1,13 +1,15 @@
 # Cahier des charges technique
 ## Atari 2600 poussée au maximum matériel — moteur mutualisé, jeux à scope contenu
-**Statut :** Draft v7 — pivot validé, revue technique externe intégrée, moteur musical adaptatif spécifié, écrans/transitions/juice ajoutés, kernel de score spécifié, représentation des briques tranchée, direction artistique posée, Spike 0 requis avant Proto 1
+**Statut :** Draft v8 — **pivot architectural 2026-08-31 : abandon ARM/DPC+/CDFJ+/bus stuffing, retour 100% 6507/TIA natif, zéro coprocesseur.** Détail et justification complète : `PIVOT_INSTRUCTIONS.md` à la racine du repo. Ce draft réécrit toutes les sections qui supposaient le coprocesseur — la mécanique de densité graphique change de nature (voir §2 et §4.2), pas seulement la logique de jeu.
 **Destinataire :** Lead dev / équipe technique
 
 ---
 
 ## 1. Contexte & vision
 
-Objectif : produire un ou plusieurs jeux Atari 2600 exploitant des techniques modernes (jamais accessibles aux développeurs des années 80) pour obtenir une densité visuelle jugée impossible à l'époque sur ce matériel — sans aucune extension qui changerait le CPU principal ou l'écran cible (TV NTSC standard).
+Objectif : produire un ou plusieurs jeux Atari 2600 exploitant des techniques modernes (jamais accessibles aux développeurs des années 80 — méthodologie de conception, outillage de rastérisation offline, discipline de comptage de cycles assistée par outil) pour obtenir une densité visuelle jugée ambitieuse pour ce matériel — sans aucune extension qui changerait le CPU principal ou l'écran cible (TV NTSC standard).
+
+**Note post-pivot (2026-08-31) :** cette phrase de cadrage n'a pas changé depuis la v1, mais son application l'a désormais rattrapée. Les drafts précédents (v2 à v7) ciblaient une cartouche Harmony avec coprocesseur ARM7TDMI pour la technique de bus stuffing — un microcontrôleur sorti en 2010, avec un cœur dont le premier exemplaire (ARM1) date de 1985, donc postérieur de 8 ans à la console visée, exécutant du code que la scène 6507 d'époque n'a jamais eu accès à. C'était une contradiction avec cette section, pas une extension conforme. Le pivot ferme cette contradiction : voir `PIVOT_INSTRUCTIONS.md`. Conséquence directe à assumer : la densité graphique visée redevient bornée par ce que le 6507 seul peut écrire par ligne (§2, §4.2) — moins spectaculaire que ce que le bus stuffing promettait sur le papier, mais c'est la version du projet qui honore réellement l'accroche "poussée au maximum matériel".
 
 **Pivot de scope (v1 → v2) :** le concept initial (un écran de combat JRPG unique, portrait de boss figé) a été remplacé par une approche délibérément plus "bordée" : des classiques arcade au ruleset minimal et déjà éprouvé (Casse-briques en priorité, Le Jumper et Octopus/Game & Watch en validation légère), choisis précisément parce qu'ils n'ont aucune inconnue de design à défricher. Toute l'énergie de l'équipe va sur l'optimisation et le rendu, pas sur l'invention de règles. Casse-briques a en plus une résonance particulière : c'est un genre né sur le matériel Atari d'origine (Breakout, 1976) — le reprendre avec nos techniques, c'est la maison qui pousse son propre jeu là où il n'avait jamais pu aller.
 
@@ -22,11 +24,14 @@ Objectif : produire un ou plusieurs jeux Atari 2600 exploitant des techniques mo
 | Élément | Choix | Justification |
 |---|---|---|
 | Console | Atari 2600 NTSC | Cible historique, raster 262 lignes/60 Hz |
-| Cartouche | Harmony/Melody (ou UnoCart 2600) | Seules cartouches supportant bus stuffing + ACE en pratique aujourd'hui |
-| Driver bas niveau | Bus Stuffing (pas DPC+/CDFJ seul) | Écriture TIA en 3 cycles vs ~5-6 en 6507 pur — c'est le levier principal de densité graphique |
-| Coprocesseur | ARM7TDMI-S LPC2103 @ 70 MHz, 32 Ko flash, 8 Ko RAM | Logique de jeu, génération procédurale, rastérisation runtime |
+| Cartouche | Bankswitchée pure — **F6 (16 Ko, 4 banques)** par défaut, F8 (8 Ko, 2 banques) si un jeu tient dedans | Schéma standard, aucun coprocesseur embarqué ; le choix exact F6 vs F8 se fait jeu par jeu selon le budget ROM réel (§12.5), pas figé au niveau moteur |
+| Cartouche de test hardware | Harmony/Melody, utilisée uniquement comme **flash cart générique** (charge n'importe quel `.bin` F6/F8 sans graver d'EPROM) | Outil pratique de la scène homebrew, indépendant du coprocesseur ARM qu'elle embarque par ailleurs — on ne l'utilise plus pour ses capacités DPC+/CDFJ/ACE |
+| Driver bas niveau | Écriture TIA native (`LDA`/`STA` 6507 pur) | Plus de bus stuffing (mécanisme intrinsèquement dépendant du coprocesseur — voir note ci-dessous) ; la densité vient de la technique de playfield asynchrone (§4.2) et de l'usage disciplé des objets matériels, pas d'une substitution matérielle sur écriture |
+| Coprocesseur | **Aucun** | Abandonné au pivot du 2026-08-31 — voir `PIVOT_INSTRUCTIONS.md` |
 | Affichage cible principal | **CRT réel** | Les techniques d'entrelacement/FRC ne sont validées de façon fiable que sur tube cathodique |
-| Affichage secondaire (dégradé) | Stella (émulateur) / LCD | Support partiel du bus stuffing selon version ; artefacts de synchro documentés sur écrans plats modernes |
+| Affichage secondaire (dégradé) | Stella (émulateur) / LCD | Émulation cycle-exacte standard, aucune dépendance à un support de bus stuffing (plus utilisé) ; artefacts de synchro documentés sur écrans plats modernes pour l'entrelacement/FRC |
+
+**Pourquoi le bus stuffing disparaît, pas seulement l'ARM :** le bus stuffing n'est pas un algorithme qu'on aurait pu réimplémenter en pur 6507 — c'est un mécanisme *matériel* où le coprocesseur de la cartouche intercepte le cycle d'écriture et substitue un octet sur le bus de données, indépendamment de ce que l'instruction `STA` porte réellement dans l'accumulateur (mécanisme documenté par Big Mess o' Wires, cf. §13). Sans coprocesseur, un `STA` écrit exactement l'octet qu'on y a mis — pour afficher une valeur différente à chaque écriture (le cas d'usage central de la couche sprite bus-stuffée de l'ancien §4.2), il faut revenir à la paire `LDA table,X` + `STA` classique, plus coûteuse en cycles. Voir §4.2 pour la conséquence sur l'architecture de rendu et §4.1/§12.10.4 pour la conséquence sur l'ambition de densité.
 
 **Décision à valider par le lead dev :** développement prioritaire pour CRT + Stella récent, avec un mode de repli (moins de paliers FRC, moins de densité) pour affichage moderne.
 
@@ -67,42 +72,40 @@ Rastérisation OFFLINE (build time, sur PC)
    → génération table de registres TIA (forme + couleur par ligne)
         │
         ▼
-Table statique en ROM (contenu figé) ─── OU ─── recalcul par l'ARM
-                                              (contenu procédural, entre deux tours)
+Table statique en ROM (contenu figé — seul chemin, plus de recalcul procédural
+runtime coûteux : voir §7 pour ce que la génération procédurale devient sur 6507 pur)
         │
         ▼
-Streaming vers TIA via bus stuffing (affichage temps réel, 3 cycles/écriture)
+Écriture native TIA (6507, `LDA`/`STA` — playfield asynchrone pour les briques,
+objets matériels standard pour les éléments mobiles, voir §4.2)
 ```
 
-### 4.2 Deux couches superposées
+Différence structurante avec les drafts précédents : plus de branche "recalcul par l'ARM entre deux tours" — tout le contenu qui variait dynamiquement doit maintenant soit être précalculé en table (discipline déjà posée en §11.3, qui s'applique donc plus largement qu'avant), soit être généré par un algorithme assez léger pour tourner sur le 6507 pendant le vblank/overscan (§6, §7).
+
+### 4.2 Une seule couche de densité, plus une superposition — le playfield asynchrone devient le chemin principal
+
+Les drafts v2-v7 empilaient deux couches : un playfield natif "doux" (160×192) et une couche de sprites bus-stuffés (96×192, détail fin) qui portait l'essentiel de la richesse visuelle. **Cette deuxième couche n'existe plus** — elle dépendait entièrement du bus stuffing (§2). Ce qui était documenté comme le **palier de repli** en 4.2.1 (draft v7) devient le **seul chemin** :
 
 | Couche | Résolution effective | Usage | Technique |
 |---|---|---|---|
-| Playfield | 160×192 (résolution "douce") | Masses, dégradés larges, aura, drapé | Recalcul par ligne, pas d'entrelacement nécessaire |
-| Sprites bus-stuffés | 96×192 (12 tuiles × 8px, entrelacé pair/impair) | Détails fins : visage, armes, symboles | Bus stuffing + entrelacement, précédent validé (démo RPG SpiceWare/AtariAge) |
+| Playfield asynchrone | 40×192 natif, réécrit mi-ligne (`PF0/1/2`) pour casser la symétrie gauche/droite | Grille de briques, masses, dégradés larges | Réécriture native `PF0/1/2` en cours de ligne — technique du chapitre "Asynchronous Playfields: Bricks" de *Making Games for the Atari 2600* (Steven Hugg), voir §4.3 |
+| Objets matériels natifs | 2 players, 2 missiles, 1 balle (§3) | Raquette, balle, débris (extension) | `GRP0/1`, `HMOVE`/`RESP`, techniques standard — plus de contrainte de coexistence avec une couche bus-stuffée sur la même ligne, cette question (ancien Spike 0 point 1) est éteinte par construction |
 
-#### 4.2.1 Décision : représentation des briques (correction d'une ambiguïté non résolue)
+**Conséquence assumée sur l'ambition visuelle** : la couleur riche *par brique individuelle* que promettait le palier "principal" du draft v7 (hue-shift/FRC complet par brique) n'est plus atteignable telle quelle — le playfield asynchrone donne une forme asymétrique correcte mais une couleur limitée à 1-2 teintes par ligne de playfield, pas une richesse par brique. C'est un vrai renoncement esthétique, pas une bascule technique transparente. Ce qui reste pleinement disponible pour compenser : hue-shift/FRC *par ligne* (§5.2/5.3, mécanisme indépendant du bus stuffing), dithering spatial, et la direction artistique silhouette-first (§5.1) qui a toujours traité le détail fin comme secondaire à la masse.
 
-Le chiffre "playfield natif 40×192" (section 3) cache un piège : nativement, ce sont 20 bits reflétés ou dupliqués sur la moitié droite de l'écran, pas 40 valeurs indépendantes — obtenir une brique asymétrique demande une technique dédiée. Un ouvrage de référence directement pertinent pour Casse-briques existe et n'était pas encore cité : *Making Games for the Atari 2600* (Steven Hugg) consacre un chapitre entier ("Asynchronous Playfields: Bricks") à exactement ce problème, en construisant un jeu façon Breakout comme cas d'étude.
+#### 4.2.1 Ce point est résolu par le pivot, pas seulement discuté
 
-**Décision retenue, à deux paliers :**
-
-| Palier | Technique | Ce qu'elle donne | Dépendance |
-|---|---|---|---|
-| **Principal** | Briques portées par la couche sprites bus-stuffées (4.2, déjà établie) | Forme *et* couleur riche par brique (hue-shift/FRC complet, cf. 12.1) | Dépend du Spike 0 (9.2, point 1) — la balle/raquette natives partagent les mêmes lignes que les briques bus-stuffées |
-| **Repli** | Playfield asynchrone (réécriture mi-ligne de `PF0/1/2`, technique du chapitre 21 de Hugg) | Forme asymétrique correcte, native, aucune dépendance au bus stuffing | Couleur limitée à 1-2 teintes par ligne de playfield (pas de richesse par brique individuelle) |
-
-Autrement dit : **le risque n°1 du Spike 0 s'applique pleinement à la grille de briques**, pas seulement aux sprites — la revue externe avait raison de le signaler comme flou, et la réponse est qu'il n'y a pas de contournement gratuit. Si le Spike 0 échoue, le repli existe (le jeu reste jouable, asymétrique, mais renonce à la richesse chromatique par brique qui est pourtant le cœur de l'ambition du projet) — mais c'est un vrai renoncement esthétique à anticiper, pas une simple bascule technique transparente.
+Le contenu de cet ancien sous-titre ("représentation des briques : deux paliers") est maintenant fondu dans le tableau ci-dessus — il n'y a plus deux paliers à arbitrer selon un spike, il y a un seul chemin. Historique de la décision et des spikes qui l'ont éclairée (Spike 0.1, 0.1b) : `backlog.md` Lane 0 et `PIVOT_INSTRUCTIONS.md`.
 
 ### 4.3 Précédents techniques à étudier avant implémentation
 
-- **Démo "RPG" (SpiceWare, forum AtariAge)** : preuve de concept validée en matériel réel — 12 couleurs/scanline sur un affichage 96×192 en tuiles, via bus stuffing + entrelacement pair/impair. Base de départ pour notre couche sprite.
-- **Démo "128 Chronocolour" (même équipe)** : tentative d'aller jusqu'à 128 teintes par pixel via alternance de trames — jugée impraticable en usage réel à cause du scintillement. À ne pas reproduire telle quelle ; sert de garde-fou sur la limite haute du FRC.
-- ***Making Games for the Atari 2600* (Steven Hugg), chapitre "Asynchronous Playfields: Bricks"** : référence directe pour le palier de repli de 4.2.1, construite précisément sur un jeu façon Breakout.
+- **Démo "RPG" (SpiceWare, forum AtariAge)** — *référence historique, plus applicable directement* : preuve de concept en matériel réel de 12 couleurs/scanline via bus stuffing + entrelacement pair/impair. Reposait sur le coprocesseur abandonné au pivot (§2) ; conservée ici comme repère de ce qu'un vrai hardware acceleration permettait, pas comme base de notre couche de rendu.
+- **Démo "128 Chronocolour" (même équipe)** : tentative d'aller jusqu'à 128 teintes par pixel via alternance de trames — jugée impraticable en usage réel à cause du scintillement. Toujours pertinente : c'est un garde-fou sur la limite haute du FRC (§5.2), mécanisme indépendant du bus stuffing.
+- ***Making Games for the Atari 2600* (Steven Hugg), chapitre "Asynchronous Playfields: Bricks"** — **référence centrale du draft actuel**, plus seulement un repli : construite précisément sur un jeu façon Breakout, c'est la technique qui porte maintenant toute la couche de densité (§4.2).
 
 ### 4.4 Détection de collision — approche recommandée
 
-**Décision : s'appuyer sur les registres matériels (section 3.1), pas sur du calcul logiciel ARM.** Pour Casse-briques, deux collisions à détecter par frame : balle-brique et balle-raquette. Si la balle est un missile TIA et la raquette un player, `CXM0P` donne directement balle-vs-raquette. Si les briques sont portées par le playfield, `CXM0FB` donne balle-vs-brique(s) en un seul read. Ça évite tout aller-retour ARM pour une opération que le matériel fait gratuitement — les latches s'accumulent pendant l'affichage et se lisent en une passe pendant le vblank suivant, avant le `CXCLR`.
+**Décision : s'appuyer sur les registres matériels (section 3.1), pas sur du calcul logiciel.** Pour Casse-briques, deux collisions à détecter par frame : balle-brique et balle-raquette. Si la balle est un missile TIA et la raquette un player, `CXM0P` donne directement balle-vs-raquette. Si les briques sont portées par le playfield, `CXM0FB` donne balle-vs-brique(s) en un seul read. Ça évite tout calcul explicite pour une opération que le matériel fait gratuitement — les latches s'accumulent pendant l'affichage et se lisent en une passe pendant le vblank suivant, avant le `CXCLR`. Post-pivot, cette décision n'est plus seulement "la plus prudente" (elle évitait un aller-retour ARM au coût alors inconnu) — elle est la seule option qui existe, puisqu'il n'y a plus d'ARM vers qui aller.
 
 **Limite à valider en Proto 4** : les registres disent *qu'il y a eu* collision, pas *où* précisément sur la ligne — pour identifier *quelle* brique a été touchée quand plusieurs sont sur la même ligne, il faudra probablement croiser avec la position X connue de la balle au moment du strobe. À concevoir pendant le Proto 4, pas avant — ce n'est pas bloquant pour le reste de l'architecture.
 
@@ -191,8 +194,8 @@ C'est un troisième kernel à part entière, avec sa propre discipline de compta
 
 - **Partage d'objets, résolu par séparation de lignes** : player0 est déjà la raquette (4.4), player1 est déjà proposé pour les débris de brique (12.9.3, extension). Résolution standard : la bande de score occupe quelques lignes tout en haut de l'écran, *avant* la zone de jeu — pendant ces lignes-là, "player0/player1" signifient "chiffre 1/chiffre 2" ; dès qu'on entre dans la zone de jeu, leur rôle est redéfini en raquette/débris. Pattern valide et courant sur 2600 (l'identité d'un objet matériel n'est pas fixe pour toute la frame), mais explicité ici pour éviter toute confusion en code entre les deux usages de player1. **Détail d'implémentation à ne pas oublier** : ce changement de rôle implique aussi de reprogrammer `NUSIZ0`/`NUSIZ1` (3-copies pour le score → normal pour le jeu) à la frontière entre les deux bandes, pas seulement les registres graphiques `GRP0`/`GRP1`.
 - **BCD plutôt que binaire pur** : convertir un score binaire en chiffres décimaux demanderait une division, interdite par la discipline d'optimisation (11.3). Le score doit être stocké directement en BCD (un chiffre décimal par octet/nibble), incrémenté directement par la logique de collision (4.4) — conséquence naturelle d'une règle déjà posée, pas une contrainte nouvelle.
-- **Score volontairement découplé de l'ARM, pour éviter une dépendance inutile au Spike 2.** La détection de collision est matérielle, pas ARM (décision de 4.4) — le score doit rester un compteur BCD strictement **côté 6507**, incrémenté directement à la lecture des latches de collision en vblank, sans jamais transiter par l'ARM. Une revue externe avait signalé un risque de dépendance au coût inconnu de l'aller-retour ACE (Spike 2, section 9.2) en supposant le score lié à la physique ARM (section 7) — ce risque est réel *si* on implémente naïvement, mais évitable par construction : le score n'a besoin d'aucune donnée calculée côté ARM, seulement du fait qu'une collision a eu lieu, déjà disponible côté 6507.
-- **Budget de cycles distinct** : ces lignes n'ont aucun rapport avec le kernel de briques (bus stuffing) — c'est un troisième budget à documenter séparément, pas une extension du premier.
+- **Score strictement côté 6507, compteur BCD.** La détection de collision est matérielle (décision de 4.4) — le score s'incrémente directement à la lecture des latches de collision en vblank. Ce point était déjà anticipé comme un risque à éviter dans les drafts précédents (le score ne devait jamais dépendre du coût alors inconnu d'un aller-retour vers l'ARM) ; le pivot ferme la question définitivement puisqu'il n'y a plus d'ARM vers lequel un tel risque pourrait exister.
+- **Budget de cycles distinct** : ces lignes n'ont aucun rapport avec le kernel de briques (playfield asynchrone) — c'est un troisième budget à documenter séparément, pas une extension du premier.
 
 #### 4.6.3 Scope recommandé pour le Proto 4
 
@@ -242,30 +245,33 @@ Application par jeu :
 - **Le Jumper** : les plateformes individuelles ne changent pas de complexité visuelle une fois positionnées, mais le défilement vertical les fait techniquement "bouger" à l'écran → nécessite une analyse dédiée en Proto Jumper, le principe ne s'applique pas tel quel.
 - **Octopus/Game & Watch** : le décor de fond est statique, les segments qui s'allument/s'éteignent sont ponctuels → bon candidat pour le traitement riche sur le fond, simple sur les segments actifs.
 
-Budget de calcul disponible pendant les phases où l'affichage reste identique frame après frame (menu, attente, scène figée) : de l'ordre de plusieurs centaines de milliers de cycles 6507 (zones vblank/overscan cumulées) + plusieurs dizaines de millions de cycles ARM par seconde d'attente — largement suffisant pour la logique de jeu, sans optimisation extrême nécessaire côté ARM. Ce budget reste disponible même dans un jeu temps réel, pendant les frames où rien de nouveau n'a besoin d'être recalculé.
+**Budget de calcul post-pivot, revu à la baisse et à préciser en Proto 1 :** pendant les phases où l'affichage reste identique frame après frame (menu, attente, scène figée), le budget disponible est celui du vblank + overscan du 6507 seul — de l'ordre de 2000-2700 cycles utilisables par frame (37 lignes vblank + 30 lignes overscan, moins la resynchro WSYNC et le travail d'affichage déjà en cours), répété à 60 Hz. Les drafts précédents ajoutaient à ce chiffre "plusieurs dizaines de millions de cycles ARM par seconde d'attente" — cette marge n'existe plus. Ce n'est **pas un budget négligeable** pour de la logique de jeu simple (un Casse-briques n'a besoin ni de génération procédurale lourde ni de physique flottante), mais **c'est un budget qui doit maintenant être compté comme n'importe quel autre chemin critique** (discipline §11.3), pas traité comme "large donc ignorable" comme le faisait le principe commun de la section 7 dans les drafts ARM. Un jeu temps réel continu (Le Jumper, Octopus) reste protégé par le même principe statique/dynamique — le budget se libère aux frames où rien de nouveau n'a besoin d'être recalculé — mais la marge de confort en moins impose de vérifier ce chiffre tôt (Proto 1), pas de le supposer.
 
 ---
 
-## 7. Logique de jeu (côté ARM / ACE)
+## 7. Logique de jeu (côté 6507, hors chemin critique d'affichage)
+
+Toute la logique de jeu tourne désormais sur le 6507, dans les fenêtres vblank/overscan (§6) — il n'y a plus de section "côté ARM" séparée. Ce n'est pas nouveau pour la scène homebrew 2600 : la génération procédurale de niveaux 100% 6507 a un précédent célèbre et bien documenté (*Pitfall!*, Activision 1982, génère ses 255 écrans à la volée via un LFSR 6502 minimal) — l'idée que "procédural = a besoin d'un coprocesseur" n'a jamais été vraie sur cette machine, le pivot revient simplement à cette tradition plutôt que d'y déroger.
 
 Usage par jeu candidat (voir section 12 pour le détail des règles) :
 
-- **Casse-briques** : physique de rebond de la balle (angles, collisions briques/raquette), génération procédurale de layouts de niveaux
-- **Le Jumper** : génération procédurale de la colonne de plateformes (types, espacement, seed déterministe)
-- **Octopus/Game & Watch** : gestion du cycle de rotation des bras et des fenêtres de passage, difficulté progressive
+- **Casse-briques** : physique de rebond de la balle — **pas de calcul d'angle en virgule flottante ni de trigonométrie runtime** (interdit par §11.3), mais une table précalculée qui associe une zone d'impact de la raquette (découpée en 4-8 secteurs) à une paire `(HMP0 delta, direction Y)` fixe. Layouts de niveaux : privilégier des layouts **précalculés en ROM** (rastérisés offline comme le reste des assets, §4.1) plutôt qu'une génération procédurale runtime — un Casse-briques n'a pas besoin de variété infinie, et ça évite d'introduire un budget cycles supplémentaire sur un jeu qui n'en avait pas besoin dans les drafts précédents pour d'autres raisons
+- **Le Jumper** : génération procédurale de la colonne de plateformes via un **LFSR 6507** (quelques instructions, coût trivial dans le budget vblank de §6) plutôt qu'un algorithme complexe — seed déterministe, table de types de plateformes indexée par les bits de sortie du LFSR
+- **Octopus/Game & Watch** : gestion du cycle de rotation des bras et des fenêtres de passage — cadence déjà cyclique par nature (compteurs modulo, pas de génération procédurale), difficulté progressive pilotée par une table de paliers plutôt qu'un calcul
 
-Principe commun : tout calcul qui n'a pas besoin d'être resynchronisé à la ligne près part sur l'ARM plutôt que sur le 6507 — la marge de cycles y est telle que la généricité ne coûte quasiment rien (contrairement au kernel d'affichage, voir section 12.3).
+Principe commun, revu : tout calcul qui n'a pas besoin d'être resynchronisé à la ligne près se fait pendant vblank/overscan plutôt que dans la boucle scanline — mais contrairement aux drafts ARM, **ce budget n'est plus "large au point d'ignorer la généricité"** (§6) ; chaque algorithme choisi ici doit rester compatible avec la discipline §11.3 (pas de multiplication/division runtime, tables précalculées ou décalages de bits).
 
-Le contenu **figé** (arrière-plans, tables de sprites) doit être rastérisé une fois pour toutes au moment de la compilation de la ROM, pas recalculé à l'exécution — coût runtime nul pour ces éléments.
+Le contenu **figé** (arrière-plans, tables de sprites, layouts de niveaux) doit être rastérisé une fois pour toutes au moment de la compilation de la ROM, pas recalculé à l'exécution — coût runtime nul pour ces éléments, principe inchangé par le pivot.
 
 ---
 
 ## 8. Outils & toolchain proposés
 
 - Assembleur 6507 : DASM (ou cc2600 si l'équipe préfère un sous-ensemble C)
-- Émulateur de développement/debug : Stella (version récente requise pour le support bus stuffing)
-- Validation finale : matériel réel (cartouche Harmony/Melody) + CRT
+- Émulateur de développement/debug : Stella — plus de contrainte de version liée au bus stuffing (mécanisme abandonné, §2), n'importe quelle version récente convient
+- Validation finale : matériel réel (cartouche Harmony/Melody utilisée comme flash cart générique, §2) + CRT
 - Pipeline offline de rastérisation vecteur → table TIA : à développer en interne (script Python probable, à partir d'assets vectoriels sources)
+- **Retiré au pivot** : `arm-none-eabi-gcc` et le driver `DPCplus.arm` (extension `chunkypixel.atari-dev-studio`) ne sont plus nécessaires — cette extension reste utile pour son support DASM/Stella générique (§11.1), mais plus pour sa capacité à compiler du code ARM
 
 ---
 
@@ -274,8 +280,8 @@ Le contenu **figé** (arrière-plans, tables de sprites) doit être rastérisé 
 | Risque | Impact | Mitigation proposée |
 |---|---|---|
 | Scintillement inacceptable sur écrans modernes (LCD/OLED) | Démo injouable hors CRT | Mode de repli à densité réduite pour émulateur/écran plat |
-| Timing bus stuffing extrêmement serré (fenêtres de quelques cycles) | Bugs difficiles à diagnostiquer, dev lent | S'appuyer sur driver existant de la communauté plutôt que ré-implémenter from scratch ; prévoir temps de mise au point important (le précédent RPG demo a demandé plusieurs itérations documentées) |
-| Support Stella incomplet pour bus stuffing selon version | Dev/debug ralenti sans matériel réel | Prévoir accès matériel réel (Harmony cart) tôt dans le projet |
+| **Densité graphique perçue en retrait par rapport à l'accroche "impossible à l'époque"** (nouveau, conséquence directe du pivot) | Le bus stuffing était le levier qui rendait cette accroche défendable en chiffres (§2) ; sans lui, le projet utilise la même classe de techniques que les titres 2600 récents déjà cités comme référence de faisabilité (§12.10.4) | Faire porter la différenciation par le playfield asynchrone + FRC/hue-shift/dithering cumulés (§4.2, §5.2) et par la direction artistique/musicale (§4.5, §12.10), pas par un avantage matériel qui n'existe plus — recalibrer le discours de présentation (§12.9.5) en conséquence, pas seulement le code |
+| Timing playfield asynchrone serré (réécriture `PF0/1/2` mi-ligne) | Bugs difficiles à diagnostiquer, dev lent | Suivre au plus près le chapitre de référence (Hugg, §4.3) plutôt que ré-improviser le timing from scratch ; comptage de cycles outillé (`tools/cycle_linter.py`) dès le premier kernel |
 | Sur-promesse sur le nombre de teintes perçues | Attentes non tenues | Valider empiriquement sur prototype avant de communiquer un chiffre |
 
 ### 9.1 Leviers de réduction du scintillement (à arbitrer)
@@ -289,33 +295,33 @@ Le contenu **figé** (arrière-plans, tables de sprites) doit être rastérisé 
 
 **Arbitrage retenu pour le Proto 2/3 :** combiner entrelacement propre + paliers FRC réduits + priorité aux masses solides. La réduction du nombre de lignes affichées est explicitement écartée en raison du risque de compatibilité avec les écrans modernes, documenté dans les précédents étudiés.
 
-### 9.2 Spikes techniques obligatoires avant Proto 1 (bloquants, pas des détails d'implémentation)
+### 9.2 Spikes techniques (statut post-pivot)
 
-Une revue externe du document a identifié des inconnues qui ne sont pas de la paperasse mais de la physique du timing — à lever *avant* de committer sur l'architecture, pas pendant. Sans ces réponses, le Proto 1 risque de démarrer sur des hypothèses fausses.
+Les drafts précédents listaient 5 spikes bloquants. Les points 1 (bus stuffing + sprite natif, même ligne), 2 (coût aller-retour ACE) et 3 (fidélité Stella sur cette combinaison) portaient tous sur l'interaction entre bus stuffing et objets natifs — **résolus par le pivot lui-même** : la question n'a plus d'objet puisque le bus stuffing est abandonné. Détail des mesures qui ont été prises avant que le pivot ne les rende sans objet (elles restent la justification écrite de la décision) : `backlog.md` Lane 0, `PIVOT_INSTRUCTIONS.md`.
 
-| # | Spike | Question à trancher | Pourquoi c'est bloquant |
-|---|---|---|---|
-| 1 | **Bus stuffing + sprite natif mobile, même ligne** | La démo RPG (référence section 4.3) prouve le bus stuffing sur écran statique. Casse-briques a besoin de bus stuffing (grille) **et** de sprites natifs mobiles (balle, raquette) **sur les mêmes scanlines**. Est-ce que `STA GRP0`/`STA HMOVE` pour positionner la balle casse la fenêtre de timing du bus stuffing sur cette ligne ? Aucun précédent documenté ne combine les deux. | **Le plus critique des cinq.** S'il échoue, toute l'architecture 4.2 (deux couches superposées) doit être repensée avant d'aller plus loin |
-| 2 | **Coût réel d'un aller-retour ACE (6507 → ARM → 6507)** | La section 6 dit "budget largement suffisant" mais ne chiffre jamais le coût de l'aller-retour lui-même. **Ce chiffre n'est pas connu à ce stade** — aucune source consultée ne le documente avec précision. | Si le coût fixe est de l'ordre de 15-20 cycles, appeler l'ARM en plein kernel d'affichage (pas juste en vblank) devient inenvisageable — ça change le découpage logique/rendu |
-| 3 | **Fidélité Stella sur la combinaison bus stuffing + sprite natif** | Le support "partiel" de Stella pour le bus stuffing seul est déjà noté (section 2). Rien ne dit s'il est fiable sur la combinaison du point 1 | Risque de développer et valider aveuglément sur émulateur, puis de tout casser à la première session sur cartouche réelle |
-| 4 | **Mécanisme de bascule FRC** | Détaillé en 5.3 — piste identifiée (changement de pointeur en vblank) mais jamais vérifiée cycle par cycle | Un fragment de kernel isolé sur 8bitworkshop (section 11.1) doit mesurer ça avant Proto 2 |
-| 5 | **Paddle vs manette** | Tranché en 12.6 — mais dépend du résultat du spike 1 si la balle finit par nécessiter un contrôle plus fin que le digital | Change le driver input et le feel du jeu, donc idéalement tranché avant que le pipeline d'input mutualisé (12.2) ne soit figé |
+| # | Spike | Statut |
+|---|---|---|
+| 1 | Bus stuffing + sprite natif mobile, même ligne | 🟢 Résolu par pivot — plus d'architecture à double couche à faire coexister (§4.2) |
+| 2 | Coût réel d'un aller-retour ACE (6507 → ARM → 6507) | 🟢 Résolu par pivot — plus d'ARM vers lequel faire un aller-retour |
+| 3 | Fidélité Stella sur la combinaison bus stuffing + sprite natif | 🟢 Résolu par pivot — combinaison qui n'existe plus |
+| 4 | **Mécanisme de bascule FRC** — détaillé en 5.3, piste identifiée (changement de pointeur en vblank) mais jamais vérifiée cycle par cycle | 🟡 **Seul spike encore ouvert.** Mécanisme 100% 6507, aucune dépendance au pivot — à mesurer via un fragment de kernel isolé (8bitworkshop, §11.1) avant Proto 2 |
+| 5 | Paddle vs manette | 🟢 Tranché (manette, §12.6) — la clause de reconfirmation portait sur un résultat défavorable du spike 1, qui n'est plus applicable |
 
-**Recommandation :** les spikes 1 et 2 sont ceux qui peuvent remettre en cause l'architecture retenue (pas juste des détails d'implémentation) — à faire trancher explicitement par le lead dev/CTO avant tout commit sur Proto 1. Les spikes 3-5 peuvent se paralléliser avec le début du Proto 1 sans le bloquer.
+**Recommandation :** le Spike FRC (point 4) peut démarrer dès maintenant en parallèle du reste — rien ne le bloque. La conception détaillée de Proto 1+ reste en attente de la révision du cahier des charges qui a produit ce draft (voir statut en tête de document et `PIVOT_INSTRUCTIONS.md` §4).
 
 ---
 
 ## 10. Jalons proposés
 
-**Spike 0 — avant tout le reste :** lever les points 1 et 2 de la section 9.2 (bus stuffing + sprite natif combinés, coût réel d'un aller-retour ACE). Décision lead dev/CTO requise sur ces deux points avant de lancer Proto 1 — un résultat négatif sur le point 1 implique de revoir l'architecture 4.2.
+**Spike 0 — statut : résolu par pivot** (voir §9.2). Ce qui reste réellement à lever avant Proto 2 : le Spike FRC (point 4 de 9.2). Aucun sign-off supplémentaire requis pour démarrer Proto 1 sur le plan architecture — le pivot lui-même *est* la décision lead dev/CTO (`PIVOT_INSTRUCTIONS.md`).
 
 **Socle partagé (avant tout jeu spécifique) :**
-1. **Proto 1 — Preuve de rendu vecteur** : une forme simple (cercle + dégradé radial) rastérisée offline, affichée via bus stuffing, comparée visuellement à la technique "programmer art" d'origine
-2. **Proto 2 — Scène statique complète** : deux couches (playfield + sprites), hue-shifting + dithering, FRC à 2 paliers
+1. **Proto 1 — Preuve de rendu vecteur** : une forme simple (cercle + dégradé radial) rastérisée offline, affichée via écriture TIA native (playfield asynchrone, §4.2), comparée visuellement à la technique "programmer art" d'origine
+2. **Proto 2 — Scène statique complète** : playfield asynchrone + objets natifs, hue-shifting + dithering, FRC à 2 paliers
 3. **Proto 3 — FRC poussé** : montée à 3-4 paliers, validation scintillement sur CRT réel
 
 **Vertical slice flagship :**
-4. **Proto 4 — Casse-briques jouable minimal** : raquette + balle + une grille de briques complète, physique de rebond côté ARM, application du principe statique/dynamique (section 6)
+4. **Proto 4 — Casse-briques jouable minimal** : raquette + balle + une grille de briques complète, physique de rebond par table précalculée côté 6507 (§7), application du principe statique/dynamique (section 6)
 
 **Vertical slices de validation (scope volontairement mince, cf. section 12) :**
 5. **Proto 5 — Le Jumper, une colonne verticale** : défilement, génération procédurale de plateformes, sans système de score/progression complet
@@ -332,8 +338,8 @@ Une revue externe du document a identifié des inconnues qui ne sont pas de la p
 | IDE | VS Code + extension **Atari Dev Studio** | Éditeur, compilation, lancement émulateur — tout intégré, pas d'allers-retours terminal |
 | Assembleur | **DASM** (macro-assembleur 6507) | Inclus dans Atari Dev Studio, standard de facto de la scène homebrew |
 | Prototypage rapide | **8bitworkshop** (IDE navigateur) | Utile pour tester un fragment de kernel isolé sans setup local, avant de rapatrier le code dans le projet VS Code |
-| Émulateur / debug | **Stella** (version récente, requise pour le support bus stuffing) | Débogueur intégré cycle-exact : breakpoints, pas-à-pas, inspection registres TIA/RIOT en direct |
-| Validation finale | Matériel réel (Harmony/Melody) + CRT | Seule validation fiable pour l'entrelacement et le FRC (cf. section 9) |
+| Émulateur / debug | **Stella** (version récente ; plus de contrainte de support bus stuffing, §2) | Débogueur intégré cycle-exact : breakpoints, pas-à-pas, inspection registres TIA/RIOT en direct |
+| Validation finale | Matériel réel (Harmony/Melody, utilisée comme flash cart générique, §2) + CRT | Seule validation fiable pour l'entrelacement et le FRC (cf. section 9) |
 | Contrôle de version | Git | Fichiers texte purs (.asm/.h), workflow standard |
 
 ### 11.2 Organisation des fichiers
@@ -344,22 +350,23 @@ Pas un monolithe : convention multi-fichiers assemblés en un seul `.bin` par DA
 /engine                      → mutualisé entre tous les jeux (voir 12.3)
     vcs.h                    → constantes registres TIA/RIOT (fixe, ne change jamais)
     macro.h                  → macros communes (init RAM, etc.)
-    bus_stuffing_driver.asm  → écriture TIA 3 cycles, générique
+    playfield_async.asm      → réécriture mi-ligne PF0/1/2, générique (§4.2)
     input.asm                → lecture joystick/bouton, anti-rebond
     vblank_scaffold.asm      → gestion timer, structure de boucle de frame
 /games
     /breakout
-        kernel_breakout.asm  → boucle d'affichage bas niveau spécifique (bus stuffing, WSYNC, FRC sur la grille de briques)
-        logic_breakout.asm   → physique balle/raquette (côté ARM, ACE)
+        kernel_breakout.asm  → boucle d'affichage bas niveau spécifique (playfield asynchrone, WSYNC, FRC sur la grille de briques)
+        logic_breakout.asm   → physique balle/raquette (6507, table précalculée — §7)
         data_breakout.asm    → layouts de niveaux
     /jumper
         kernel_jumper.asm    → défilement vertical, positionnement plateformes
-        logic_jumper.asm     → génération procédurale (ARM)
+        logic_jumper.asm     → génération procédurale (6507, LFSR — §7)
     /octopus
         kernel_octopus.asm   → cycle des bras, fenêtres de passage
-        logic_octopus.asm    → timing et difficulté (ARM)
+        logic_octopus.asm    → timing et difficulté (6507, table de paliers — §7)
 /tools
     rasterizer.py            → pipeline offline vecteur → table TIA (hors ROM finale)
+    cycle_linter.py          → vérification mécanique du budget de cycles (§11.3)
 main.asm                     → point d'entrée, sélectionne le jeu à assembler
 ```
 
@@ -367,11 +374,12 @@ Principe directeur : **séparer le moteur (générique, mutualisé, stable) du c
 
 ### 11.3 Discipline d'optimisation (à appliquer dès le Proto 1)
 
-- Annoter chaque instruction critique avec son coût cumulé en cycles (convention `; 3 cycles, position 38, doit finir @37-43`), comme observé dans les kernels bus-stuffing existants — c'est la seule façon fiable de vérifier qu'un kernel tient dans son budget avant de le tester
+- Annoter chaque instruction critique avec son coût cumulé en cycles (convention `; 3 cycles, position 38, doit finir @37-43`), vérifié mécaniquement par `tools/cycle_linter.py` — c'est la seule façon fiable de vérifier qu'un kernel tient dans son budget avant de le tester
 - Variables chaudes (compteurs de boucle, pointeurs de table, état de tour) en page zéro systématiquement — 1 cycle de moins par accès qu'en adressage absolu
 - Tables indexées alignées sur 256 octets pour éviter la pénalité de franchissement de page (+1 cycle imprévisible)
 - Aucune multiplication/division runtime — le 6507 n'en a pas nativement ; tout passe par table précalculée ou décalage de bits
-- Code auto-modifiant réservé aux kernels les plus tendus (affichage), jamais à la logique de jeu côté ARM où la marge de cycles est large
+- Code auto-modifiant réservé aux kernels les plus tendus (affichage), toujours à éviter dans la logique de jeu (§7) où le code reste plus facile à relire à froid que le gain de cycles ne le justifie
+- Post-pivot, cette discipline s'applique désormais **aussi à la logique de jeu** (§7), pas seulement au kernel d'affichage — le budget vblank/overscan n'est plus assez large pour se permettre de l'ignorer (§6)
 - Le débogueur Stella sert à *vérifier* le comptage manuel, pas à s'y substituer — un kernel qui déborde silencieusement d'une ligne sur l'autre est un bug qu'on veut éviter d'avoir à diagnostiquer après coup
 
 ---
@@ -385,22 +393,22 @@ Critère de sélection explicite : ruleset déjà entièrement spécifié ailleu
 | Jeu | Ruleset | Pourquoi il sert le projet |
 |---|---|---|
 | **Casse-briques** (flagship) | Raquette 1 axe, balle rebondissante, grille de briques à détruire | Genre né sur Atari (Breakout, 1976) — boucle historique forte. Grille de briques = terrain idéal pour le hue-shift/FRC (chaque rangée un dégradé de teinte propre) |
-| **Le Jumper** | Un seul axe de liberté (gauche/droite), auto-rebond vertical infini, aucun game over | Vitrine pour la génération procédurale côté ARM plutôt que pour la densité couleur pure |
-| **Octopus** (Game & Watch) | Bras rotatifs à cycle régulier, fenêtres de passage à lire au timing | Résonance directe avec notre propre technique de bus stuffing (fenêtres de cycles précises) |
+| **Le Jumper** | Un seul axe de liberté (gauche/droite), auto-rebond vertical infini, aucun game over | Vitrine pour la génération procédurale légère côté 6507 (LFSR, §7) plutôt que pour la densité couleur pure |
+| **Octopus** (Game & Watch) | Bras rotatifs à cycle régulier, fenêtres de passage à lire au timing | Résonance directe avec la discipline de timing à la ligne près que le playfield asynchrone impose déjà (§4.2) |
 
 ### 12.2 Ce qui est mutualisable, ce qui ne l'est pas
 
 | Composant | Mutualisable ? | Raison |
 |---|---|---|
-| Driver bus stuffing (écriture TIA 3 cycles) | ✅ Oui | Mécanique bas niveau générique, indépendante de ce qui s'affiche |
+| Driver playfield asynchrone (réécriture mi-ligne PF0/1/2) | ✅ Oui | Mécanique bas niveau générique (§4.2), indépendante du contenu affiché — remplace l'ancien driver bus stuffing |
 | Pipeline de rastérisation offline (vecteur → table TIA) | ✅ Oui | Outil de contenu, pas de logique de jeu |
-| Runtime ARM / ACE (logique, procédural) | ✅ Oui | Budget de cycles si large que la généricité n'y coûte quasiment rien |
+| Logique de jeu (physique, procédural — §7) | ⚠️ Partiellement | Chaque jeu tourne son propre `logic_*.asm` sur 6507 (plus de runtime commun côté ARM, §7) ; ce qui reste mutualisable, ce sont des **routines** isolées (un LFSR générique, un helper de lookup table), pas un runtime partagé |
 | Lecture input (joystick + bouton, anti-rebond) | ✅ Oui | Coût trivial à partager |
 | Scaffolding vblank/overscan | ✅ Oui | Boilerplate commun à tout jeu 2600 |
 | Conventions mémoire (page zéro, format de table) | ✅ Oui | Cohérence d'équipe, zéro coût runtime |
 | **Kernel d'affichage** (boucle scanline par scanline) | ❌ Non — bespoke par jeu | Chaque jeu a une disposition d'objets radicalement différente : grille pleine largeur statique (Casse-briques) vs défilement vertical continu (Jumper) vs objets à positions fixes qui s'allument/s'éteignent (Octopus). Une abstraction générique ajouterait de l'indirection dans une boucle qui doit déjà tenir en 73 cycles/ligne — ça sacrifierait exactement la densité qu'on cherche à obtenir |
 
-**Principe d'arbitrage :** tout ce qui est hors du chemin critique d'affichage (ARM, outils offline, scaffolding) se mutualise sans réserve. Tout ce qui touche à la boucle WSYNC-critique reste cousu main, jeu par jeu.
+**Principe d'arbitrage, revu post-pivot :** tout ce qui est hors du chemin critique d'affichage (outils offline, scaffolding, routines de logique isolées) se mutualise sans réserve. Tout ce qui touche à la boucle WSYNC-critique reste cousu main, jeu par jeu — et depuis le pivot, la logique de jeu elle-même (§7) doit être comptée en cycles comme le reste, donc elle aussi bespoke par jeu plutôt qu'un runtime générique.
 
 ### 12.3 Cible visuelle : correction de référence
 
@@ -418,28 +426,28 @@ La bonne référence est la série **Game & Watch Gallery** (Game Boy/GBC), qui 
 
 ### 12.5 Budget mémoire/ROM à anticiper
 
-- Banking déjà couvert par le choix Harmony/CDFJ (32 Ko flash côté ARM) — pas de contrainte de taille bloquante à court terme pour ces rulesets
+- Post-pivot, plus de 32 Ko de flash ARM en filet de sécurité — le budget réel est celui d'une cartouche bankswitchée F6 (16 Ko, 4 banques de 4 Ko) par défaut, ou F8 (8 Ko, 2 banques) si un jeu y tient (§2). À vérifier concrètement dès que les tables d'assets (rastérisation offline, §4.1) et les layouts précalculés (§7) existent — ROM plus contrainte qu'avec l'ARM, donc budget à suivre activement, pas à considérer acquis
 - Réserver dès le Proto 4 une carte d'allocation de la page zéro (quelles adresses sont réservées à l'état de jeu, au RNG, aux pointeurs actifs) pour éviter les collisions entre les différents kernels de jeu et entre devs qui toucheront le code en parallèle
 
 ### 12.6 Décision : paddle ou manette pour Casse-briques
 
 Divergence identifiée par la revue externe : le Breakout historique utilise un paddle (potentiomètre, lecture analogique via `INPT0-3`, section 3.1), alors que le critère de sélection posé en 12.1 impose une manette digitale 4 directions + 1 bouton, commune aux trois jeux.
 
-**Décision retenue : manette digitale, pas paddle.** Raison : le paddle casserait la mutualisation de l'input posée en 12.2 (`✅ Oui` pour "lecture input") — Le Jumper et Octopus n'ont aucun usage d'un paddle, et faire cohabiter deux drivers d'input dans `/engine/input.asm` réintroduirait exactement le genre d'indirection qu'on refuse pour le kernel d'affichage. On sacrifie l'authenticité historique du contrôle pour la cohérence d'architecture — arbitrage assumé, pas un oubli. **À reconfirmer après le Spike 0** : si le point 1 (9.2) montre que la balle a besoin d'un contrôle plus fin que ce que permet le digital, cette décision devra être révisée.
+**Décision retenue : manette digitale, pas paddle.** Raison : le paddle casserait la mutualisation de l'input posée en 12.2 (`✅ Oui` pour "lecture input") — Le Jumper et Octopus n'ont aucun usage d'un paddle, et faire cohabiter deux drivers d'input dans `/engine/input.asm` réintroduirait exactement le genre d'indirection qu'on refuse pour le kernel d'affichage. On sacrifie l'authenticité historique du contrôle pour la cohérence d'architecture — arbitrage assumé, pas un oubli. **Statut post-pivot :** la clause de reconfirmation portait sur un résultat défavorable du Spike 0 point 1 (9.2), qui n'a plus lieu d'être puisque ce spike est résolu par pivot. Décision considérée stable ; à revalider en Proto 4 sur sensation de jeu réelle si besoin, plus sur une contrainte technique désormais éteinte.
 
-### 12.7 Budget de cycles — exemple chiffré illustratif (non validé matériel)
+### 12.7 Budget de cycles — exemple chiffré illustratif (non validé matériel), recalculé post-pivot
 
-Demandé par la revue externe : un exemple concret plutôt que des affirmations qualitatives ("largement suffisant"). **À prendre comme cadre de calcul pour le Spike 0, pas comme chiffre confirmé** — seul un test réel (Stella cycle-exact ou matériel) validera ces ordres de grandeur.
+Cette section changeait déjà de nature avec le pivot : sans bus stuffing, une écriture qui doit varier (une brique différente d'une ligne à l'autre) redevient une paire `LDA table,Y` + `STA` classique plutôt qu'un simple `STA` (§2). **À prendre comme cadre de calcul pour le Proto 1, pas comme chiffre confirmé** — seul un test réel (Stella cycle-exact ou matériel, via `tools/cycle_linter.py` pour le comptage mécanique) validera ces ordres de grandeur.
 
 | Poste (par scanline dans la zone de jeu) | Coût estimé | Cumul sur 73 cycles utiles |
 |---|---|---|
 | `STA WSYNC` (resynchronisation) | 3 cycles | 3 |
-| Écriture bus-stuffée d'une brique (1 registre couleur/forme) | 3 cycles | selon nombre de briques sur la ligne |
+| Réécriture asynchrone d'un registre de playfield (`LDA table,Y` 4 cycles + `STA PF0/1/2` 3 cycles) | ~7 cycles/registre | selon le nombre de registres réécrits pour casser la symétrie sur cette ligne (typiquement 1-3, voir §4.2) |
 | Mise à jour position balle (lecture + `STA HMP0`/`STA RESP0` si sprite natif) | ~6-9 cycles | à ajouter une seule fois par frame concernée, pas par ligne |
 | Mise à jour position raquette (lecture input + `STA HMP1`) | ~6-9 cycles | idem, hors chemin critique de la ligne balle |
-| Marge restante pour hue-shift/FRC sur la ligne | *(73 − reste)* | à mesurer, c'est la vraie question du Spike 0 point 1 |
+| Marge restante pour hue-shift/FRC sur la ligne | *(73 − reste)* | à mesurer en Proto 1 |
 
-La ligne "marge restante" est l'inconnue centrale : si le coût conjoint bus-stuffing + sprite natif dépasse 73 cycles sur une ligne qui contient à la fois des briques ET la balle, il faut soit réduire la densité couleur sur ces lignes précises, soit garantir que balle et briques ne se chevauchent jamais sur la même ligne par construction du layout (contrainte de design plutôt que prouesse technique — option à garder sous le coude si le Spike 0 est défavorable).
+**Différence structurante avec le draft v7 :** l'ancienne ligne "marge restante" posait une question binaire (le Spike 0 point 1 passe ou casse). Cette question n'existe plus — il n'y a plus deux mécanismes à faire coexister sur la même ligne (§4.2). La question qui reste est plus ordinaire : combien de registres de playfield peut-on se permettre de réécrire par ligne dans ce budget de ~7 cycles/registre avant d'empiéter sur la marge FRC/hue-shift — un calibrage de densité normal, pas un risque d'architecture.
 
 ### 12.8 Pistes d'extension post-vertical-slice (ambition, non bloquant)
 
@@ -517,7 +525,7 @@ Rappel de 5.1 : silhouette avant détail, hue-shift plutôt que simple luminance
 
 #### 12.10.4 Références utiles
 
-- **Repère de faisabilité réaliste (sans bus stuffing)** : les titres 2600 récents de Champ Games (*Zoo Keeper*, *Mappy*, *Super Cobra Arcade*, *Turbo Arcade*) — c'est le plancher que nos techniques doivent dépasser, pas un objectif en soi
+- **Repère de faisabilité réaliste, désormais notre propre classe de technique** : les titres 2600 récents de Champ Games (*Zoo Keeper*, *Mappy*, *Super Cobra Arcade*, *Turbo Arcade*) n'utilisent pas de bus stuffing — dans les drafts précédents, c'était "le plancher que le bus stuffing devait dépasser". Post-pivot, on est dans la même famille de contraintes qu'eux (100% 6507/TIA natif). La différenciation ne peut plus venir d'un avantage matériel (§9, risque de densité) — elle doit venir de la combinaison playfield asynchrone + FRC/hue-shift/dithering cumulés (§4.2, §5.2) et de la direction artistique/musicale (ci-dessous, §4.5), un terrain où ces titres n'ont pas particulièrement investi
 - **Style graphique recommandé pour la génération IA : affiche WPA / gravure sur bois (linocut)** — silhouettes fortes, aplats de couleur francs, palette volontairement restreinte, pas de dégradé fin ni de texture délicate. C'est le style qui survit le mieux à une réduction brutale vers 3-4 teintes, bien mieux qu'un rendu photoréaliste ou peint en glacis
 - **Référence narrative** : l'art du cabinet d'arcade Breakout original (1976), thème carcéral — à consulter avant de rédiger les prompts, pas à citer de mémoire
 
@@ -533,14 +541,15 @@ Exemple pour la scène "évasion" du Thème A : *"A prison wall breaking open to
 
 ## 13. Références consultées
 
-- Forum AtariAge — fil "Bus Stuffing Demos" (SpiceWare et al.), incluant démo RPG et démo 128 Chronocolour
-- Big Mess o' Wires — articles sur l'accélération matérielle Atari 2600 (bus stuffing, ACE, Harmony/CDFJ)
+- `PIVOT_INSTRUCTIONS.md` (racine du repo) et `backlog.md` Lane 0 — décision et justification complète du pivot architectural du 2026-08-31 (abandon ARM/DPC+/CDFJ+/bus stuffing), y compris les spikes 0.1/0.1b/0.2/0.2b qui ont contribué à l'éclairer
+- Forum AtariAge — fil "Bus Stuffing Demos" (SpiceWare et al.), incluant démo RPG et démo 128 Chronocolour — *référence historique, technique abandonnée au pivot (§2), conservée pour la limite haute du FRC (§4.3)*
+- Big Mess o' Wires — articles sur l'accélération matérielle Atari 2600 (bus stuffing, ACE, Harmony/CDFJ) — *référence historique, mécanisme abandonné (§2), utile pour comprendre pourquoi le bus stuffing n'était pas séparable de l'ARM*
 - Wikipedia — spécifications matérielles Atari 2600 (résolution, TIA, 6507)
 - Documentation communautaire "Atari 2600 Programming for Newbies" (timing TIA/6502)
 - GitHub chunkypixel/atari-dev-studio, 8bitworkshop.com — toolchain de développement moderne
 - Nintendo Life, MobyGames, Super Mario Wiki, Retro Replay — vérification factuelle Game & Watch Collection (DS) vs Game & Watch Gallery (GB/GBC)
 - Spécifications matérielles TIA (registres collision CX*, audio AUDC/AUDF/AUDV, paddle INPT0-3) — classic-games.com/atari2600, problemkaputt.de (Nocash specs), Grokipedia
-- Big Mess o' Wires — détail technique du mécanisme de bus stuffing ($FF + pull-down data bus)
+- Big Mess o' Wires — détail technique du mécanisme de bus stuffing ($FF + pull-down data bus) — *référence historique, voir note ci-dessus*
 - Spécifications audio TIA (AUDC/AUDF/AUDV, 2 voix) — qotile.net Music and Sound Programming Guide, midibox.org, TIA Technical Manual (archive.org)
 - Comparaison matérielle Game Boy (4 canaux + enveloppes matérielles) — Pan Docs (gbdev.io), GbdevWiki — pour calibrer honnêtement l'ambition "niveau Link's Awakening"
 - Repères historiques des œuvres du domaine public retenues : *12 Variations sur "Ah vous dirai-je, Maman" K.265* (Mozart, 1785), Passacaille en sol mineur de la Sonate du Rosaire (Biber, c. 1676), Inventions à 2 voix BWV 772-786 (Bach)
