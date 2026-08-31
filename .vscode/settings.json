@@ -1,0 +1,7 @@
+{
+  "files.associations": {
+    "*.asm": "dasm-atari-dev-studio",
+    "*.h": "dasm-atari-dev-studio"
+  },
+  "editor.rulers": [40]
+}
