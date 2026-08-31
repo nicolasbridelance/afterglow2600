@@ -1,0 +1,14 @@
+{
+  "name": "afterglow2600",
+  "image": "mcr.microsoft.com/devcontainers/universal:5.1.5",
+  "postCreateCommand": "sudo apt-get update -qq && sudo apt-get install -y dasm && pip install --user pytest",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "chunkypixel.atari-dev-studio",
+        "editorconfig.editorconfig",
+        "ms-python.python"
+      ]
+    }
+  }
+}

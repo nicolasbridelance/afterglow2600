@@ -5,7 +5,7 @@ Contexte complet : voir `cahier_des_charges.md` (vision/archi) et `backlog.md` (
 
 ## Commandes
 - Assembler : `dasm main.asm -f3 -o<jeu>.bin -l<jeu>.lst`
-- Vérifier le budget de cycles : `python3 tools/cycle_linter.py <jeu>.lst` (à construire — voir backlog.md, Lane 2)
+- Vérifier le budget de cycles : `python3 tools/cycle_linter.py <jeu>.lst` (version minimale posée au Spike 0.1 — somme les cycles entre WSYNC ; à étendre avant Proto 1, voir backlog.md)
 - Tests rasterizer / logique ARM : `pytest tools/ tests/`
 
 ## Contraintes non négociables (ne jamais enfreindre silencieusement)

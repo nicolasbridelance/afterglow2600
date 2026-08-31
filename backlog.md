@@ -7,6 +7,8 @@ Légende : 🔴 bloqué · 🟡 prêt à démarrer · 🟢 fait · ⚪ pas comme
 - 🟡 Spike 0.1 — Bus stuffing + sprite natif mobile, même scanline
   - Sortie attendue : oui/non + marge de cycles mesurée
   - Si non → réouvrir architecture 4.2 avant toute autre lane
+  - **Mesure du 2026-08-31** (`spikes/spike_0_1/spike_0_1.asm`, vérifié mécaniquement par `tools/cycle_linter.py`) : une séquence bus-stuffée (PF0/PF1/PF2/COLUP0, technique confirmée par [Big Mess o' Wires — Atari 2600 Hardware Acceleration](https://www.bigmessowires.com/2023/01/23/atari-2600-hardware-acceleration/), $FF préchargé + `STA` zéro-page = 3 cycles/écriture) interrompue par un repositionnement/rafraîchissement de sprite natif (`HMOVE` + `GRP0`) tient en **39 cycles sur 76 disponibles/ligne NTSC — marge de 37 cycles**. Structurellement viable et assemblé sans erreur (DASM `-f3`).
+    - **Non prouvé ici** : le comportement réel du firmware ARM Harmony/Melody face à une écriture native (`GRP0`) intercalée dans une séquence bus-stuffée qu'il doit suivre pour savoir quel octet substituer — ni Stella cycle-exact ni hardware réel disponibles dans ce sandbox (voir Lane 1). Verdict à considérer comme "structurellement oui, à confirmer sur Stella/hardware avant de lever la Porte 0" plutôt qu'un oui/non définitif.
 - 🟡 Spike 0.2 — Coût réel d'un aller-retour ACE (6507 → ARM → 6507)
   - Sortie attendue : coût fixe en cycles
   - Si >15-20 cycles → revoir découpage logique/rendu (section 6)
@@ -75,7 +77,7 @@ En solo, tu es lead dev **et** CTO — la porte 0 (section 9.2) n'a personne d'a
 
 Différence structurante : pas de mémoire entre sessions. Le repo n'est pas la documentation du process, il *est* la mémoire — toute décision non écrite ici n'existe pas à la session suivante.
 
-- **Comptage de cycles** : annotation obligatoire (11.3) + **vérifié mécaniquement**, pas seulement à l'œil. Outil à construire dès Proto 1 : script parsant le listing DASM, sommant les cycles entre `WSYNC`, faisant autorité sur le comptage manuel. (Vérifié : DASM disponible via apt dans le sandbox.)
+- **Comptage de cycles** : annotation obligatoire (11.3) + **vérifié mécaniquement**, pas seulement à l'œil. Outil : `tools/cycle_linter.py` — parse le listing DASM, somme les cycles entre `WSYNC`, fait autorité sur le comptage manuel (version minimale posée au Spike 0.1, à étendre avant Proto 1). (DASM n'était PAS présent par défaut dans le sandbox malgré ce qu'affirmait une version antérieure de cette ligne — installé via `apt-get install dasm` le 2026-08-31, persistance assurée par `.devcontainer/devcontainer.json`.)
 - **Commentaires** : pas de pense-bête ligne à ligne (relecture à froid systématique, peu importe le délai) — bloc "pourquoi ce fichier / ce qu'il possède" en tête de fichier pour orientation rapide.
 - **Tests** : pytest classique pour le rasterizer offline et la logique ARM extraite en fonctions pures ; le kernel 6507 est vérifié par le linter de cycles, pas par des tests unitaires au sens classique.
 - **Émulation** : DASM permet l'assemblage et la vérification structurelle (registres, tables, budget de cycles). Stella headless (captures d'écran) non packagé, non encore validé — à traiter comme un chantier séparé.
