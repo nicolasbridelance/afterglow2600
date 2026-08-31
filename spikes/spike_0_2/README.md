@@ -1,3 +1,5 @@
+> ⚠️ SUPERSEDED — voir [`PIVOT_INSTRUCTIONS.md`](../../PIVOT_INSTRUCTIONS.md). Le projet a abandonné l'architecture ARM/DPC+/CDFJ+ (2026-08-31). Conservé comme preuve de la décision de pivot, ne bloque plus rien.
+
 # Spike 0.2 — Coût réel d'un aller-retour ACE (6507 → ARM → 6507)
 
 Code de mesure jetable, comme Spike 0.1 — pas un kernel livré.
