@@ -7,6 +7,7 @@ Contexte complet : voir `cahier_des_charges.md` (vision/archi) et `backlog.md` (
 - Assembler : `dasm main.asm -f3 -o<jeu>.bin -l<jeu>.lst`
 - Vérifier le budget de cycles : `python3 tools/cycle_linter.py <jeu>.lst` (version minimale posée au Spike 0.1 — somme les cycles entre WSYNC ; à étendre avant Proto 1, voir backlog.md)
 - Tests rasterizer / logique ARM : `pytest tools/ tests/`
+- Vérification structurelle headless (boot sans crash + type de bankswitch détecté) : `xvfb-run -a stella -video software -audio.enabled 0 -logtoconsole 1 -holdreset <jeu>.bin` — ne prouve NI le comportement ARM bus-stuffing (ROM 4K simple, pas un vrai cart DPC+/CDFJ) NI le rendu visuel/scintillement CRT (voir backlog.md § Protocole IA, Émulation)
 
 ## Contraintes non négociables (ne jamais enfreindre silencieusement)
 - Aucune multiplication/division runtime sur le 6507 — table précalculée ou décalage de bits uniquement
