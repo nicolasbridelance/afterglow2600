@@ -64,6 +64,19 @@ def test_split_wsync_segments_splits_only_on_real_wsync_writes():
     assert len(segments[1]) == 1
 
 
+def test_parse_lst_reads_absolute_addressing_line():
+    # Format DASM réel pour une instruction 3 octets (ex. STA absolu) : un espace de
+    # plus après le dernier octet, avant la tabulation, que sur une ligne 2 octets.
+    # Régression pour le bug corrigé le 2026-08-31 (Spike FRC) : ces lignes étaient
+    # ignorées silencieusement par parse_lst(), sous-comptant tout segment qui en contenait.
+    line = "     80  f034\t\t       8d 41 f0 \t      sta\tReadColor+2\t; 4 cycles, position 14\n"
+    instructions = parse_lst([line])
+    assert len(instructions) == 1
+    assert instructions[0].mnemonic == "STA"
+    assert instructions[0].cycles == 4
+    assert instructions[0].operand_address == 0xF041
+
+
 def test_parse_lst_reads_generated_listing():
     lst_path = Path(__file__).resolve().parents[1] / "spikes" / "spike_0_1" / "spike_0_1.lst"
     if not lst_path.exists():

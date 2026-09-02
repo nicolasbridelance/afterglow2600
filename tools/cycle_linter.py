@@ -11,6 +11,12 @@ deux WSYNC — c'est déjà la discipline imposée par convention 11.3 sur le ch
 Les instructions marquées VARIABLE_CYCLE_OPCODES ont un coût de base qui peut varier
 (franchissement de page, branchement pris) : le compte reporté est le minimum, à confirmer
 manuellement si le budget est serré.
+
+Bug corrigé le 2026-08-31 (découvert au Spike FRC) : DASM ajoute un espace après le dernier
+octet listé sur les lignes à 3 octets (adressage absolu) avant la tabulation — l'ancienne
+regex l'exigeait immédiatement, donc parse_lst() ignorait silencieusement toute instruction
+LDA/STA absolue (aucune erreur, juste un total sous-compté). Les instructions zero-page/
+immédiat (2 octets) n'étaient pas touchées, ce qui a masqué le bug jusqu'ici.
 """
 
 import re
@@ -73,7 +79,7 @@ WSYNC_ADDRESS = 0x02
 NTSC_CYCLES_PER_LINE = 76
 
 LST_LINE = re.compile(
-    r"^\s*\d+\s+([0-9a-fA-F]{4})\t+\s*((?:[0-9a-fA-F]{2}\s+)*[0-9a-fA-F]{2})\t+\s*\S"
+    r"^\s*\d+\s+([0-9a-fA-F]{4})\t+\s*((?:[0-9a-fA-F]{2}\s+)*[0-9a-fA-F]{2})\s*\t+\s*\S"
 )
 ANNOTATION = re.compile(r"(\d+)\s*cycles?,\s*position\s*(\d+)", re.IGNORECASE)
 

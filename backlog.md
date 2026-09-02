@@ -35,19 +35,21 @@ Légende : 🔴 bloqué · 🟡 prêt à démarrer · 🟢 fait · ⚪ pas comme
 - ⚪ Décision "priorité CRT vs Stella récent" (section 2) — actuellement non tranchée dans le cahier des charges, à trancher avant Proto 2 (FRC/entrelacement en dépendent)
 
 ## Lane 2 — Socle moteur (après Porte 0)
-- ⚪ Proto 1 — Preuve de rendu vecteur (bus stuffing seul)
-- ⚪ Proto 2 — Scène statique complète (2 couches, FRC 2 paliers)
-  - Sous-item : Spike FRC (9.2 pt.4) — bascule table en vblank, à vérifier cycle par cycle avant ce proto
+> **Mise à jour 2026-08-31 — recalé sur `cahier_des_charges.md` Draft v8 (§10) post-pivot.** L'ancienne formulation mentionnait encore le bus stuffing et une architecture à 2 couches, devenues sans objet (voir Lane 0).
+- ⚪ Proto 1 — Preuve de rendu vecteur (forme simple rastérisée offline, affichée en playfield asynchrone natif §4.2)
+- ⚪ Proto 2 — Scène statique complète (playfield asynchrone + objets natifs, hue-shift/dithering, FRC 2 paliers)
+  - 🟢 Sous-item : Spike FRC (9.2 pt.4) — bascule table en vblank, vérifiée cycle par cycle. **Mesure du 2026-08-31** (`spikes/spike_frc/`, détail complet dans son README) : mécanisme par code auto-modifiant (patch de l'octet fort de l'opérande `LDA table,Y` en vblank) confirmé — bascule 26 cycles (budget vblank ~2000-2700), lecture scanline patchée 12 cycles/76, coût structurellement identique quelle que soit la table active (opcode `LDA abs,Y` insensible à la valeur patchée). Contrainte à ne pas perdre en implémentation réelle : chaque table doit tenir dans une seule page mémoire pour la plage d'offsets `Y` utilisée. Effet de bord : a révélé et corrigé un bug de sous-comptage silencieux dans `tools/cycle_linter.py` sur toute instruction en adressage absolu (3 octets) — n'affectait pas le résultat déjà publié de Spike 0.1.
 - ⚪ Proto 3 — FRC poussé (3-4 paliers, validation scintillement CRT réel via Lane 1)
 
 ## Lane 3 — Vertical slice flagship
+> **Mise à jour 2026-08-31 — recalé sur `cahier_des_charges.md` Draft v8 (§7, §4.2, §4.6.3, §9.2.1) post-pivot.**
 - ⚪ Proto 4 — Casse-briques jouable minimal
-  - Physique balle/raquette (ARM)
-  - Grille de briques — palier principal (sprites bus-stuffés) ou repli (playfield asynchrone) selon résultat Spike 0.1
+  - Physique balle/raquette — table précalculée 6507 (zone d'impact raquette → `HMP0 delta`/direction Y), §7 — plus d'ARM
+  - Grille de briques — playfield asynchrone (§4.2), seul chemin depuis le pivot, plus de palier sprite bus-stuffé à arbitrer
   - Kernel score 4 chiffres (4.6.3)
   - Audio Proto 4 (piste A ou B à trancher, table de transformations)
   - Juice Proto 4 (hit-stop, flash, squash)
-  - Spike 5 — paddle vs manette, à reconfirmer si Spike 0.1 impose un contrôle plus fin
+  - Paddle vs manette : tranché (manette, §12.6) — la clause de reconfirmation ne s'applique plus (portait sur un résultat défavorable du Spike 0.1, résolu par pivot, §9.2.1)
 
 ## Lane 4 — Vertical slices de validation (après retour d'expérience Casse-briques)
 - ⚪ Proto 5 — Le Jumper (une colonne)
@@ -111,7 +113,7 @@ Différence structurante : pas de mémoire entre sessions. Le repo n'est pas la 
 | Piste musicale A ou B pour Proto 4 | ⚪ non tranché | pendant Proto 4 |
 | Paddle vs manette | 🟢 tranché (manette) | à reconfirmer post Spike 0.1 |
 | Architecture ARM/DPC+/CDFJ+ vs 100% 6507/TIA | 🟢 tranché (100% 6507/TIA, abandon ARM) | pivot du 2026-08-31, voir `PIVOT_INSTRUCTIONS.md` |
-| Palier briques (sprite vs playfield) | ⚪ probablement playfield asynchrone (repli devenu chemin principal), à confirmer par le cahier des charges révisé | après cahier des charges révisé |
+| Palier briques (sprite vs playfield) | 🟢 tranché (playfield asynchrone, seul chemin) | acté par `cahier_des_charges.md` Draft v8 §4.2, réconcilié le 2026-08-31 |
 
 ---
 *Mettre à jour ce fichier à chaque porte franchie ou décision tranchée — c'est le journal de vérité du projet, pas le cahier des charges figé.*

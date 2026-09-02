@@ -71,4 +71,4 @@ Détail complet des lanes, portes et décisions : [`backlog.md`](backlog.md).
 
 ## Licence
 
-À définir.
+MIT — voir [`LICENSE`](LICENSE).

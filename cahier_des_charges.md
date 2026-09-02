@@ -234,9 +234,11 @@ Principe : alterner deux teintes sur un cycle de N frames réelles, avec pondér
 
 Estimation réaliste : ~300-400 teintes perçues distinctes sur CRT bien réglé, à valider empiriquement — **pas un chiffre garanti**, dépend de l'écran et du choix des paires de teintes.
 
-### 5.3 Mécanisme de bascule FRC — non détaillé, à spiker (voir 9.2)
+### 5.3 Mécanisme de bascule FRC — vérifié cycle par cycle (voir 9.2)
 
-Point ouvert signalé par la revue externe du document : le FRC suppose de basculer entre 2 (ou N) tables de teintes d'une frame réelle à l'autre. Piste privilégiée : la bascule se fait **une fois par frame, en vblank**, via un simple changement de pointeur de table (l'index de table active passe de 0 à 1 dans une variable page zéro) — le kernel d'affichage lit toujours "la table active" sans savoir laquelle c'est, donc la boucle scanline elle-même ne coûte rien de plus. Le seul coût ajouté est dans le vblank, où le budget est large (section 6). **Cette piste n'est pas encore vérifiée cycle par cycle** — c'est l'objet du spike FRC (section 9.2, point 4) avant Proto 2.
+Point ouvert signalé par la revue externe du document : le FRC suppose de basculer entre 2 (ou N) tables de teintes d'une frame réelle à l'autre. Piste retenue : la bascule se fait **une fois par frame, en vblank**, via du code auto-modifiant — l'octet de poids fort de l'opérande d'un `LDA table,Y` fixe dans le kernel scanline est réécrit en vblank pour pointer vers la table active. Le kernel scanline lit toujours "la table active" sans savoir laquelle c'est : l'opcode exécuté ($B9, `LDA abs,Y`) est structurellement identique quelle que soit la table pointée, donc la boucle scanline elle-même ne coûte rien de plus. Le seul coût ajouté est dans le vblank, où le budget est large (section 6).
+
+**Vérifié mécaniquement le 2026-08-31** (`spikes/spike_frc/`, spike FRC de la section 9.2, point 4) : bascule + patch mesurés à 26 cycles (budget vblank ~2000-2700), lecture scanline patchée à 12 cycles/76 — identique quelle que soit la table active. Contrainte de conception à respecter dans l'implémentation réelle : chaque table doit tenir dans une seule page mémoire pour la plage d'offsets `Y` utilisée (poids faible de l'adresse de base + `Y` max < `$100`), sous peine d'une pénalité de franchissement de page sur `LDA abs,Y` — indépendante de la table active, donc elle ne romprait pas l'égalité de coût entre tables, mais romprait le budget scanline si négligée sur une table qui grossit.
 
 ---
 
@@ -318,19 +320,19 @@ Ce travail reste la justification écrite de la décision de pivot, pas du trava
 
 Sur la qualité de ce travail : mesures structurelles, lecture de code source Stella plutôt que supposition, désassemblage manuel avec ses limites honnêtement notées ("non prouvé ici", "à confirmer dynamiquement") — une investigation rigoureuse, pas une excuse a posteriori pour le pivot.
 
-#### 9.2.2 Seul spike réellement actif après le pivot
+#### 9.2.2 Dernier spike ouvert avant le pivot — résolu
 
-| # | Spike | Question à trancher | Pourquoi |
+| # | Spike | Question à trancher | Résultat |
 |---|---|---|---|
-| 4 | **Mécanisme de bascule FRC** | Détaillé en §5.3 — piste identifiée (changement de pointeur en vblank) mais jamais vérifiée cycle par cycle | Mécanisme 100% 6507, aucune dépendance au pivot — à mesurer via un fragment de kernel isolé (8bitworkshop, §11.1) avant Proto 2 |
+| 4 | **Mécanisme de bascule FRC** | Détaillé en §5.3 — piste identifiée (code auto-modifiant en vblank) mais jamais vérifiée cycle par cycle | 🟢 **Mesuré le 2026-08-31** (`spikes/spike_frc/`) : bascule+patch 26 cycles (budget vblank ~2000-2700), lecture scanline patchée 12 cycles/76, coût identique quelle que soit la table active. Détail en §5.3. |
 
-Ce spike est notablement plus léger que les précédents : pas de dépendance à du matériel non standard, pas d'ambiguïté d'émulation — juste un comptage de cycles à vérifier sur un mécanisme entièrement documenté. Il peut démarrer dès maintenant, rien ne le bloque. La conception détaillée de Proto 1+ reste en attente de la révision du cahier des charges qui a produit ce draft (voir statut en tête de document et `PIVOT_INSTRUCTIONS.md` §4).
+Ce spike était notablement plus léger que les précédents : pas de dépendance à du matériel non standard, pas d'ambiguïté d'émulation — juste un comptage de cycles sur un mécanisme entièrement documenté, mesuré par `tools/cycle_linter.py`. Effet de bord : a révélé et corrigé un bug de sous-comptage silencieux dans cet outil sur les instructions en adressage absolu (3 octets) — sans effet sur le résultat déjà publié de Spike 0.1 (§9.2.1). Plus aucun spike bloquant n'est ouvert ; la conception détaillée de Proto 1+ reste la prochaine étape (voir `PIVOT_INSTRUCTIONS.md` §4).
 
 ---
 
 ## 10. Jalons proposés
 
-**Spike 0 — statut : résolu par pivot** (voir §9.2). Ce qui reste réellement à lever avant Proto 2 : le Spike FRC (point 4 de 9.2). Aucun sign-off supplémentaire requis pour démarrer Proto 1 sur le plan architecture — le pivot lui-même *est* la décision lead dev/CTO (`PIVOT_INSTRUCTIONS.md`).
+**Spike 0 — statut : résolu par pivot** (voir §9.2). **Spike FRC — statut : mesuré le 2026-08-31** (§9.2.2), plus aucun spike bloquant ouvert. Aucun sign-off supplémentaire requis pour démarrer Proto 1 sur le plan architecture — le pivot lui-même *est* la décision lead dev/CTO (`PIVOT_INSTRUCTIONS.md`).
 
 **Socle partagé (avant tout jeu spécifique) :**
 1. **Proto 1 — Preuve de rendu vecteur** : une forme simple (cercle + dégradé radial) rastérisée offline, affichée via écriture TIA native (playfield asynchrone, §4.2), comparée visuellement à la technique "programmer art" d'origine
